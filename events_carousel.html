@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Events Carousel</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .carousel-item {
+            position: relative;
+            height: 400px;
+        }
+        
+        .carousel-image {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 8px;
+        }
+        
+        .carousel-caption {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(transparent, rgba(0,0,0,0.7));
+            padding: 2rem 1rem 1rem;
+            border-radius: 0 0 8px 8px;
+        }
+        
+        .carousel-caption h3 {
+            font-size: 1.8rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+        }
+        
+        .carousel-caption p {
+            font-size: 1.1rem;
+            margin-bottom: 0;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+        }
+        
+        .carousel-control-prev,
+        .carousel-control-next {
+            width: 5%;
+        }
+        
+        .carousel-control-prev-icon,
+        .carousel-control-next-icon {
+            background-size: 20px 20px;
+        }
+        
+        .carousel-indicators {
+            bottom: -40px;
+        }
+        
+        .carousel-indicators [data-bs-target] {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            border: none;
+            background-color: #ccc;
+        }
+        
+        .carousel-indicators .active {
+            background-color: #007bff;
+        }
+        
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 400px;
+            font-size: 1.2rem;
+            color: #6c757d;
+        }
+        
+        .error {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 400px;
+            color: #dc3545;
+            text-align: center;
+            padding: 2rem;
+        }
+        
+        .no-events {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 400px;
+            color: #6c757d;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid p-3">
+        <div id="loading" class="loading">
+            <div>Loading events...</div>
+        </div>
+        
+        <div id="error" class="error" style="display: none;">
+            <div>
+                <h4>Unable to load events</h4>
+                <p>Please check your CSV file and configuration.</p>
+            </div>
+        </div>
+        
+        <div id="no-events" class="no-events" style="display: none;">
+            <div>
+                <h4>No upcoming events</h4>
+                <p>Check back soon for new events!</p>
+            </div>
+        </div>
+        
+        <div id="eventsCarousel" class="carousel slide" data-bs-ride="carousel" style="display: none;">
+            <div class="carousel-indicators" id="carousel-indicators">
+                <!-- Indicators will be added dynamically -->
+            </div>
+            
+            <div class="carousel-inner" id="carousel-inner">
+                <!-- Slides will be added dynamically -->
+            </div>
+            
+            <button class="carousel-control-prev" type="button" data-bs-target="#eventsCarousel" data-bs-slide="prev">
+                <span class="carousel-control-prev-icon"></span>
+                <span class="visually-hidden">Previous</span>
+            </button>
+            <button class="carousel-control-next" type="button" data-bs-target="#eventsCarousel" data-bs-slide="next">
+                <span class="carousel-control-next-icon"></span>
+                <span class="visually-hidden">Next</span>
+            </button>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    
+    <script>
+        // Configuration - modify these values as needed
+        const CONFIG = {
+            csvUrl: 'events.csv', // Path to your CSV file
+            maxEvents: 5,         // Maximum number of upcoming events to show (excludes sticky items)
+            autoSlideInterval: 5000, // Auto-slide interval in milliseconds (5 seconds)
+            refreshInterval: 300000  // Refresh data every 5 minutes
+        };
+        
+        let currentCarousel = null;
+        
+        function parseDate(dateString) {
+            // Try to parse various date formats
+            let date = new Date(dateString);
+            
+            // If the date is invalid, try parsing as MM/DD/YYYY
+            if (isNaN(date.getTime()) && dateString.includes('/')) {
+                const parts = dateString.split('/');
+                if (parts.length === 3) {
+                    // Assume MM/DD/YYYY format
+                    date = new Date(parts[2], parts[0] - 1, parts[1]);
+                }
+            }
+            
+            return date;
+        }
+        
+        function isSticky(item) {
+            // Check if item is marked as sticky
+            return item.sticky && (
+                item.sticky.toLowerCase() === 'true' || 
+                item.sticky.toLowerCase() === 'yes' || 
+                item.sticky === '1'
+            );
+        }
+        
+        function isUpcomingEvent(eventDate) {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            const event = parseDate(eventDate);
+            return !isNaN(event.getTime()) && event >= today;
+        }
+        
+        function formatEventDate(dateString) {
+            const date = parseDate(dateString);
+            if (isNaN(date.getTime())) return dateString;
+            
+            return date.toLocaleDateString('en-US', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+        }
+        
+        function createCarouselSlide(item, index) {
+            const isActive = index === 0 ? 'active' : '';
+            let subtitle = item.subtitle || '';
+            
+            // For non-sticky items with dates, show formatted date if no subtitle
+            if (!isSticky(item) && !subtitle && item.date) {
+                subtitle = formatEventDate(item.date);
+            }
+            
+            return `
+                <div class="carousel-item ${isActive}">
+                    <img src="${item.image}" class="carousel-image" alt="${item.title}" 
+                         onerror="this.src='https://via.placeholder.com/800x400/cccccc/666666?text=Event+Image'">
+                    <div class="carousel-caption">
+                        <h3>${item.title}</h3>
+                        <p>${subtitle}</p>
+                    </div>
+                </div>
+            `;
+        }
+        
+        function createCarouselIndicator(index) {
+            const isActive = index === 0 ? 'active' : '';
+            const ariaCurrent = index === 0 ? 'aria-current="true"' : '';
+            
+            return `
+                <button type="button" data-bs-target="#eventsCarousel" 
+                        data-bs-slide-to="${index}" class="${isActive}" 
+                        ${ariaCurrent} aria-label="Slide ${index + 1}"></button>
+            `;
+        }
+        
+        function showError() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('eventsCarousel').style.display = 'none';
+            document.getElementById('no-events').style.display = 'none';
+            document.getElementById('error').style.display = 'block';
+        }
+        
+        function showNoEvents() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('eventsCarousel').style.display = 'none';
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('no-events').style.display = 'block';
+        }
+        
+        function showCarousel() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('no-events').style.display = 'none';
+            document.getElementById('eventsCarousel').style.display = 'block';
+        }
+        
+        function loadEvents() {
+            console.log('Starting loadEvents function');
+            
+            // Show loading state
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('eventsCarousel').style.display = 'none';
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('no-events').style.display = 'none';
+            
+            console.log('Attempting to load CSV from:', CONFIG.csvUrl);
+            
+            Papa.parse(CONFIG.csvUrl, {
+                download: true,
+                header: true,
+                skipEmptyLines: true,
+                complete: function(results) {
+                    console.log('CSV parsing complete');
+                    console.log('Results:', results);
+                    
+                    if (results.errors && results.errors.length > 0) {
+                        console.error('CSV parsing errors:', results.errors);
+                    }
+                    
+                    if (!results.data) {
+                        console.error('No data in CSV results');
+                        showError();
+                        return;
+                    }
+                    
+                    console.log('Raw CSV data:', results.data);
+                    
+                    // Process the data
+                    const stickyItems = [];
+                    const upcomingEvents = [];
+                    
+                    for (let i = 0; i < results.data.length; i++) {
+                        const row = results.data[i];
+                        console.log(`Processing row ${i}:`, row);
+                        
+                        // Skip empty rows
+                        if (!row.title || row.title.trim() === '') {
+                            console.log(`Skipping row ${i}: no title`);
+                            continue;
+                        }
+                        
+                        // Check if sticky
+                        if (isSticky(row)) {
+                            console.log(`Row ${i} is sticky`);
+                            if (row.image && row.image.trim() !== '') {
+                                stickyItems.push(row);
+                                console.log(`Added sticky item: ${row.title}${row.link ? ' (with link: ' + row.link + ')' : ''}`);
+                            } else {
+                                console.log(`Sticky item missing image: ${row.title}`);
+                            }
+                        } else {
+                            // Check if it's a future event
+                            if (row.date && row.image && row.image.trim() !== '') {
+                                if (isUpcomingEvent(row.date)) {
+                                    upcomingEvents.push(row);
+                                    console.log(`Added upcoming event: ${row.title}${row.link ? ' (with link: ' + row.link + ')' : ''}`);
+                                } else {
+                                    console.log(`Event is not upcoming: ${row.title}, date: ${row.date}`);
+                                }
+                            } else {
+                                console.log(`Event missing required fields: ${row.title}`);
+                            }
+                        }
+                    }
+                    
+                    console.log('Sticky items found:', stickyItems);
+                    console.log('Upcoming events found:', upcomingEvents);
+                    
+                    // Sort upcoming events by date
+                    upcomingEvents.sort((a, b) => parseDate(a.date) - parseDate(b.date));
+                    
+                    // Limit upcoming events
+                    const limitedUpcomingEvents = upcomingEvents.slice(0, CONFIG.maxEvents);
+                    
+                    // Combine all items
+                    const itemsToDisplay = stickyItems.concat(limitedUpcomingEvents);
+                    
+                    console.log('Final items to display:', itemsToDisplay);
+                    
+                    if (itemsToDisplay.length === 0) {
+                        console.log('No items to display');
+                        showNoEvents();
+                        return;
+                    }
+                    
+                    // Create the carousel
+                    try {
+                        const carouselInner = document.getElementById('carousel-inner');
+                        const carouselIndicators = document.getElementById('carousel-indicators');
+                        
+                        let slidesHTML = '';
+                        let indicatorsHTML = '';
+                        
+                        for (let i = 0; i < itemsToDisplay.length; i++) {
+                            console.log(`Creating slide ${i} for item:`, itemsToDisplay[i]);
+                            slidesHTML += createCarouselSlide(itemsToDisplay[i], i);
+                            indicatorsHTML += createCarouselIndicator(i);
+                        }
+                        
+                        carouselInner.innerHTML = slidesHTML;
+                        carouselIndicators.innerHTML = indicatorsHTML;
+                        
+                        // Destroy existing carousel
+                        if (currentCarousel) {
+                            currentCarousel.dispose();
+                        }
+                        
+                        showCarousel();
+                        
+                        // Initialize new carousel
+                        const carouselElement = document.getElementById('eventsCarousel');
+                        currentCarousel = new bootstrap.Carousel(carouselElement, {
+                            interval: CONFIG.autoSlideInterval,
+                            ride: 'carousel',
+                            pause: 'hover'
+                        });
+                        
+                        console.log(`Successfully loaded carousel with ${itemsToDisplay.length} items`);
+                        
+                    } catch (error) {
+                        console.error('Error creating carousel:', error);
+                        showError();
+                    }
+                },
+                error: function(error) {
+                    console.error('Error loading CSV:', error);
+                    showError();
+                }
+            });
+        }
+        
+        // Load events when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded, starting carousel initialization');
+            loadEvents();
+            
+            // Refresh events periodically
+            setInterval(loadEvents, CONFIG.refreshInterval);
+        });
+        
+        // Handle image loading errors gracefully
+        document.addEventListener('error', function(e) {
+            if (e.target.tagName === 'IMG') {
+                e.target.src = 'https://via.placeholder.com/800x400/cccccc/666666?text=Event+Image';
+            }
+        }, true);
+    </script>
+</body>
+</html>
